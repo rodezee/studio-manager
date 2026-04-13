@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Studio Manager</title>
+    <link rel="stylesheet" href="//unpkg.com/bulma">
+    <script defer src="//unpkg.com/alpine-turnout"></script>
+    <script defer src="//unpkg.com/alpinejs"></script>
+    <style>
+        .menu-list a.is-active { background-color: #48c78e; color: white; }
+        .studio-led { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .led-on { background: #ff3860; box-shadow: 0 0 5px #ff3860; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body x-data="{ 
+    isRecording: false, 
+    bpm: 120,
+    audioCtx: null,
+    nextNoteTime: 0,
+    timerID: null,
+
+    init() {
+        // Watch the Turnout store's notFound state
+        this.$watch('$store.turnout.notFound', (isLost) => {
+            if (isLost) {
+                this.playErrorSignal();
+            }
+        });
+    },
+
+    playErrorSignal() {
+        if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Create a Static sound using a noise buffer or a dissonant oscillator
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+        
+        osc.frequency.setValueAtTime(50, this.audioCtx.currentTime); // Low hum
+        osc.frequency.exponentialRampToValueAtTime(10, this.audioCtx.currentTime + 2);
+        
+        gain.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, this.audioCtx.currentTime + 2);
+        
+        osc.connect(gain);
+        gain.connect(this.audioCtx.destination);
+        
+        osc.start();
+        osc.stop(this.audioCtx.currentTime + 2);
+    },
+
+    toggleRecord() { 
+        this.isRecording = !this.isRecording;
+        if (this.isRecording) {
+            if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            this.nextNoteTime = this.audioCtx.currentTime;
+            this.scheduler();
+        } else {
+            clearTimeout(this.timerID);
+        }
+    },
+
+    scheduler() {
+        while (this.nextNoteTime < this.audioCtx.currentTime + 0.1) {
+            this.playClick(this.nextNoteTime);
+            this.nextNoteTime += 60.0 / this.bpm;
+        }
+        this.timerID = setTimeout(() => this.scheduler(), 25);
+    },
+
+    playClick(time) {
+        const osc = this.audioCtx.createOscillator();
+        const envelope = this.audioCtx.createGain();
+        osc.frequency.value = 880;
+        envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+        osc.connect(envelope);
+        envelope.connect(this.audioCtx.destination);
+        osc.start(time);
+        osc.stop(time + 0.1);
+    }
+}">
+    <section class="section">
+        <div class="container">
+            <nav class="level box is-mobile has-background-dark has-text-white">
+                <div class="level-item has-text-centered">
+                    <div>
+                        <p class="heading has-text-grey-light">Master Clock</p>
+                        <p class="title is-4 has-text-white" x-text="bpm + ' BPM'"></p>
+                    </div>
+                </div>
+                <div class="level-item has-text-centered">
+                    <div>
+                        <p class="heading has-text-grey-light">Status</p>
+                        <p class="title is-4">
+                            <span class="studio-led" :class="isRecording && 'led-on'"></span>
+                            <span x-text="isRecording ? 'RECORDING' : 'IDLE'"></span>
+                        </p>
+                    </div>
+                </div>
+                <div class="level-item">
+                    <button @click="toggleRecord()" 
+                            :class="isRecording ? 'button is-danger' : 'button is-outline is-white'">
+                        <span x-text="isRecording ? 'STOP' : 'REC'"></span>
+                    </button>
+                </div>
+            </nav>
+
+            <div class="columns is-variable is-8">
+                <aside class="column is-4-desktop">
+                    <div class="box">
+                        <p class="menu-label">Console</p>
+                        <ul class="menu-list">
+                            <li><a href="/" :class="$store.turnout.path === '/' && 'is-active'">🎛️ Project Library</a></li>
+                            <li><a href="/settings" :class="$store.turnout.path === '/settings' && 'is-active'">⚙️ Gear Rack</a></li>
+                        </ul>
+                        
+                        <p class="menu-label">Active Projects</p>
+                        <ul class="menu-list">
+                            <li><a href="/project/midnight-lofi" :class="$store.turnout.path === '/project/midnight-lofi' && 'is-active'">Midnight Lofi</a></li>
+                            <li><a href="/project/neon-pulse" :class="$store.turnout.path === '/project/neon-pulse' && 'is-active'">Neon Pulse</a></li>
+                            <li><a href="/project/synth-wave" :class="$store.turnout.path === '/project/synth-wave' && 'is-active'">Synth Wave</a></li>
+                        </ul>
+
+                        <hr>
+                        <div class="field px-3">
+                            <label class="label is-small">BPM Slider</label>
+                            <input class="slider is-fullwidth" step="1" min="60" max="200" type="range" x-model="bpm">
+                        </div>
+                    </div>
+                </aside>
+
+                <main class="column">
+                    
+                    <div x-route="/" x-title="Library | Studio">
+                        <h2 class="title">Project Library</h2>
+                        <div class="columns is-multiline">
+                            <template x-for="p in ['Midnight Lofi', 'Neon Pulse', 'Synth Wave']">
+                                <div class="column is-6">
+                                    <div class="card">
+                                        <div class="card-content">
+                                            <p class="title is-5" x-text="p"></p>
+                                            <p class="subtitle is-6">Last edited 2h ago</p>
+                                            <a :href="'/project/' + p.toLowerCase().replace(' ', '-')" class="button is-small is-primary is-light">Open Arrangement</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div x-route="/project/:id" x-title="Arrangement View">
+                        <div class="level">
+                            <div class="level-left">
+                                <div>
+                                    <h2 class="title is-capitalize" x-text="id ? id.replace('-', ' ') : ''"></h2>
+                                    <p class="subtitle is-6">Project ID: <span class="tag is-family-monospace" x-text="id || 'N/A'"></span></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="box has-background-black-bis">
+                            <template x-for="track in ['Drums', 'Bass', 'Synth', 'Vocals']">
+                                <div class="mb-4">
+                                    <div class="is-flex is-justify-content-space-between has-text-grey-light is-size-7 mb-1">
+                                        <span x-text="track"></span>
+                                        <span>Peak: -3.2dB</span>
+                                    </div>
+                                    <progress class="progress is-success is-small" :value="isRecording ? Math.random() * 100 : 0" max="100"></progress>
+                                </div>
+                            </template>
+                        </div>
+                        
+                        <div class="buttons">
+                            <button class="button is-dark" @click="history.back()">← Back</button>
+                            <button class="button is-primary" @click="alert('Exporting ' + id)">Export Mixdown</button>
+                        </div>
+                    </div>
+
+                    <div x-route="/settings" x-title="Gear Rack">
+                        <h2 class="title">Gear Rack</h2>
+                        <div class="notification is-info is-light">
+                            All hardware inputs are currently synced at <strong x-text="bpm"></strong> BPM.
+                        </div>
+                        <div class="box">
+                            <table class="table is-fullwidth">
+                                <thead>
+                                    <tr><th>Device</th><th>Port</th><th>Latency</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>Midi Controller</td><td>USB-A</td><td>2ms</td></tr>
+                                    <tr><td>Analog Synth</td><td>Input 1</td><td>0ms</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div x-route="*" x-title="404" class="has-text-centered py-6">
+                        <p class="title is-1">⚠️</p>
+                        <p class="title is-4">Signal Lost</p>
+                        <p class="mb-5">We couldn't find the track you were looking for.</p>
+                        <a href="/" class="button is-black">Re-scan Library</a>
+                    </div>
+
+                </main>
+            </div>
+        </div>
+    </section>
+</body>
+</html>
